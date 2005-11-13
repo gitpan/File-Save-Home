@@ -3,7 +3,7 @@ require 5.006_001;
 use strict;
 use warnings;
 use Exporter ();
-our $VERSION     = '0.03';
+our $VERSION     = '0.04';
 our @ISA         = qw(Exporter);
 our @EXPORT_OK   = qw(
     get_home_directory
@@ -27,11 +27,16 @@ our %EXPORT_TAGS = (
 use Carp;
 use File::Path;
 use File::Spec::Functions qw|
+    catdir
     catfile
+    catpath
     splitdir
+    splitpath
 |;
 use File::Temp qw| tempdir |;
 *ok = *Test::More::ok;
+use Cwd;
+use File::Find;
 
 #################### DOCUMENTATION ###################
 
@@ -41,7 +46,7 @@ File::Save::Home - Place file safely under user home directory
 
 =head1 VERSION
 
-This document refers to version 0.03, released November 12, 2005.
+This document refers to version 0.04, released November 13, 2005.
 
 =head1 SYNOPSIS
 
@@ -133,9 +138,13 @@ single-level (C<mydir>) or multi-level (C<path/to/mydir>).  Determines
 whether that  directory already exists underneath the user's
 home or home-equivalent directory. Calls C<get_home_directory()> internally,
 then tacks on the path passed as argument. Returns a reference to a
-three-element hash whose keys are:
+four-element hash whose keys are:
 
 =over 4
+
+=item home
+
+The absolute path of the home directory.
 
 =item abs
 
@@ -162,12 +171,14 @@ sub get_subhome_directory_status {
     
     if (-d $dirname) {
         return {
+            home    => $home,
             top     => $subdir_top,
             abs     => $dirname,
             flag    => 1,
        };
     } else {
         return {
+            home    => $home,
             top     => $subdir_top,
             abs     => $dirname,
             flag    => undef,
@@ -206,10 +217,22 @@ it is left unchanged.
 
 sub restore_subhome_directory_status {
     my $desired_dir_ref = shift;
+    my $home = $desired_dir_ref->{home};
     my $desired_dir = $desired_dir_ref->{abs};
     my $subdir_top = $desired_dir_ref->{top};
     if (! defined $desired_dir_ref->{flag}) {
-        rmtree((splitdir($subdir_top))[0], 0, 1);
+        my $cwd = cwd();
+        find {
+            bydepth   => 1,
+            no_chdir  => 1,
+            wanted    => sub {
+                if (! -l && -d _) {
+                    rmdir  or warn "Couldn't rmdir $_: $!";
+                } else {
+                    unlink or warn "Couldn't unlink $_: $!";
+                }
+            }
+        } => ("$home/$subdir_top");
         (! -d $desired_dir) 
             ? return 1
             : croak "Unable to restore directory created during test: $!";

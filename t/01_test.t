@@ -2,9 +2,7 @@
 use strict;
 use warnings;
 
-use Test::More 
-tests => 13;
-# qw(no_plan);
+use Test::More tests => 13;
 
 use_ok('File::Save::Home', qw|
     get_home_directory
@@ -19,15 +17,6 @@ use_ok('Cwd');
 my ($cwd, $homedir, @subdirs, $desired_dir_ref, $desired_dir );
 ok($homedir = get_home_directory(), 'home directory is defined');
 
-# To test get_subhome_directory_status() fully, I have to test two cases:  
-# (1) where a certain dir already exists under homedir
-# (2) where a certain dir does not already exist under homedir
-
-# I could approach (1) by reading homedir and noting any already existing dirs
-# there, then using one of them, selected at random, as an argument to a test.
-# I could approach (2) by generating a random dirname which would be
-# overwhelmingly likely not to exist under homedir.
-
 $cwd = cwd();
 
 ok(chdir $homedir, "able to change to $homedir");
@@ -37,6 +26,8 @@ ok(chdir $homedir, "able to change to $homedir");
     @subdirs = grep {-d $_ and !($_ eq '.' or $_ eq '..') } readdir DH;
     ok(closedir DH, "able to close directory handle to $homedir");
 }
+
+ok(chdir $cwd, "able to change back to $cwd");
 
 if (@subdirs) {
     my $testdir = $subdirs[int(rand(@subdirs))];
@@ -61,6 +52,4 @@ ok(restore_subhome_directory_status($desired_dir_ref),
 
 ok(! -d $desired_dir, 
     "randomly named directory $desired_dir_ref->{abs} has been deleted");
-
-ok(chdir $cwd, "able to change back to $cwd");
 
