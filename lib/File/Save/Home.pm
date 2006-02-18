@@ -3,7 +3,7 @@ require 5.006_001;
 use strict;
 use warnings;
 use Exporter ();
-our $VERSION     = '0.06';
+our $VERSION     = '0.07';
 our @ISA         = qw(Exporter);
 our @EXPORT_OK   = qw(
     get_home_directory
@@ -46,7 +46,7 @@ File::Save::Home - Place file safely under user home directory
 
 =head1 VERSION
 
-This document refers to version 0.06, released November 25, 2005.
+This document refers to version 0.07, released February 19, 2006.
 
 =head1 SYNOPSIS
 
@@ -104,7 +104,8 @@ On Win32, this directory is the one returned by the following function from the 
     Win32->import( qw(CSIDL_LOCAL_APPDATA) );
     $realhome =  Win32::GetFolderPath( CSIDL_LOCAL_APPDATA() );
 
-... which translates to something like F<C:\Documents and Settings\localuser\Local Settings\Application Data>.  
+... which translates to something like F<C:\Documents and Settings\localuser\Local Settings\Application Data>.
+(For a further discussion of Win32, see below L</"SEE ALSO">.)
 
 On Unix-like systems, things are much simpler.  We simply check the value of
 C<$ENV{HOME}>.  We cannot do that on Win32 because C<$ENV{HOME}> is not 
@@ -379,10 +380,106 @@ sub reveal_target_file {
     }
 }
 
-
 =head1 BUGS AND TODO
 
 So far tested only on Unix-like systems and Win32.
+
+=head1 SEE ALSO
+
+perl(1).  ExtUtils::ModuleMaker::Auxiliary.  ExtUtils::ModuleMaker::Utility.
+The latter two packages are part of the ExtUtils::ModuleMaker distribution
+available from the same author on CPAN.  They and the ExtUtils::ModuleMaker
+test suite provide examples of the use of File::Save::Home.
+
+Two other distributions located on CPAN, File::HomeDir and
+File::HomeDir::Win32, may also be used to locate a suitable value for a user's
+home directory.  It should be noted, however, that those modules and
+File::Save::Home each take a different approach to defining a home directory
+on Win32 systems.  Hence, each may deliver a different result on a given
+system.  I cannot say that one distribution's approach is any more or less
+correct than the other two's approaches.  The following comments should be
+viewed as my subjective impressions; YMMV.
+
+File::HomeDir was originally written by Sean M Burke and is now maintained by
+Adam Kennedy.  As of version 0.52 its interface provides three methods for the
+''current user'':
+
+    $home = File::HomeDir->my_home;
+    $docs = File::HomeDir->my_documents;
+    $data = File::HomeDir->my_data;
+  
+When I ran these three methods on a Win2K Pro system running ActivePerl 8, I
+got these results:
+
+    C:\WINNT\system32>perl -MFile::HomeDir -e "print File::HomeDir->my_home"
+    C:\Documents and Settings\localuser
+
+    C:\WINNT\system32>perl -MFile::HomeDir -e "print File::HomeDir->my_documents"
+    C:\Documents and Settings\localuser\My Documents
+
+    C:\WINNT\system32>perl -MFile::HomeDir -e "print File::HomeDir->my_data"
+    C:\Documents and Settings\localuser\Local Settings\Application Data
+
+In contrast, when I ran the closest equivalent method in File::Save::Home,
+C<get_home_directory>, I got this result:
+
+    C:\WINNT\system32>perl -MFile::Save::Home -e "print File::Save::Home->get_home_directory"
+    C:\Documents and Settings\localuser\Local Settings\Application Data
+
+In other words, C<File::Save::Home-E<gt>get_home_directory> gave the same result
+as C<File::HomeDir-E<gt>my_data>, I<not>, as I might have expected, the same
+result as C<File::HomeDir-E<gt>my_home>.
+
+These results can be explained by peeking behind the curtains and looking at
+the source code for each module.
+
+=head2 File::HomeDir
+
+File::HomeDir's objective is to provide a value for a user's home directory on
+a wide variety of operating systems.  When invoked, it detects the operating
+system you're on and calls a subclassed module.  When used on a Win32 system, 
+that subclass is called File::HomeDir::Windows (not to be confused with the
+separate CPAN distribution File::HomeDir::Win32).
+C<File::HomeDir::Windows-E<gt>my_home()> looks like this:
+
+    sub my_home {
+    	my $class = shift;
+    	if ( $ENV{USERPROFILE} ) { return $ENV{USERPROFILE}; }
+    	if ( $ENV{HOMEDRIVE} and $ENV{HOMEPATH} ) {
+    		return File::Spec->catpath( $ENV{HOMEDRIVE}, $ENV{HOMEPATH}, '',);
+    	}
+    	Carp::croak("Could not locate current user's home directory");
+    }
+
+In other words, determine the current user's home directory simply by checking
+environmental variables analogous to the C<$ENV{HOME}> on Unix-like systems.
+A very straightforward approach!
+
+As mentioned above, File::Save::Home takes a different approach.  It uses the
+Win32 module to, in effect, check a particular key in the registry.
+
+    Win32->import( qw(CSIDL_LOCAL_APPDATA) );
+    $realhome =  Win32::GetFolderPath( CSIDL_LOCAL_APPDATA() );
+
+This approach was suggested to me in August 2005 by several members of
+Perlmonks.  (See threads I<Installing a config file during module operation>
+(L<http://perlmonks.org/?node_id=481690>) and I<Win32 CSIDL_LOCAL_APPDATA>
+(L<http://perlmonks.org/?node_id=485902>).)  I adopted this approach in part
+because the people recommending it knew more about Windows than I did, and in
+part because File::HomeDir was not quite as mature as it has since become.  It
+is interesting that the I<other two> File::HomeDir methods listed above,
+C<my_documents()> and C<my_data()> both rely on using a Win32 module to peer
+into the registry, albeit in a slightly different manner from
+C<File::Save::Home-E<gt>get_home_directory>.  TIMTOWTDI.
+
+In an event, File::Save::Home has a number of useful methods I<besides>
+C<get_home_directory()> which merit your consideration.
+
+=head2 File::HomeDir::Win32
+
+File::HomeDir::Win32 was originally written by Rob Rothenberg and is now
+maintained by Randy Kobes.  Because I have not yet fully installed it, I will 
+defer further comparison between it and File::Save::Home to a later date.
 
 =head1 AUTHOR
 
@@ -393,24 +490,31 @@ So far tested only on Unix-like systems and Win32.
 
 =head1 ACKNOWLEDGMENTS
 
-The subroutines in this module draw upon subroutines in
-ExtUtils::ModuleMaker::Auxiliary and ExtUtils::ModuleMaker::Utility.  
-After I made a presentation to the Toronto Perlmongers on October 27, 2005, 
-Michael Graham suggested that these functions could be extracted to a 
-separate Perl extention for more general applicability.  This module is the
-implementation of Michael's suggestion.
+File::Save::Home has its origins in the maintenance revisions I was doing on
+CPAN distribution ExtUtils::ModuleMaker in the summer of 2005.  
+After I made a presentation about that distribution to the Toronto Perlmongers 
+on October 27, 2005, Michael Graham suggested that certain utility functions 
+could be extracted to a separate Perl extention for more general applicability. 
+This module is the implementation of Michael's suggestion.
+
+While I was developing those utility functions for ExtUtils::ModuleMaker, I
+turned to the Perlmonks for assistance with the problem of determining a
+suitable value for the user's home directory on Win32 systems.  In the
+Perlmonks discussion threads referred to above I received helpful suggestions
+from monks CountZero, Tanktalus, xdg and holli, among others.
+
+Thanks to Rob Rothenberg for prodding me to expand the SEE ALSO section and to
+Adam Kennedy for responding to questions about File::HomeDir.
 
 =head1 COPYRIGHT
+
+Copyright (c) 2005-06 James E. Keenan.  United States.  All rights reserved. 
 
 This program is free software; you can redistribute
 it and/or modify it under the same terms as Perl itself.
 
 The full text of the license can be found in the
 LICENSE file included with this module.
-
-=head1 SEE ALSO
-
-perl(1).  ExtUtils::ModuleMaker::Auxiliary.  ExtUtils::ModuleMaker::Utility.
 
 =cut
 
