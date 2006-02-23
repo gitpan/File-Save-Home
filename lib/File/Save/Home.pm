@@ -3,7 +3,7 @@ require 5.006_001;
 use strict;
 use warnings;
 use Exporter ();
-our $VERSION     = '0.07';
+our $VERSION     = '0.08';
 our @ISA         = qw(Exporter);
 our @EXPORT_OK   = qw(
     get_home_directory
@@ -46,7 +46,7 @@ File::Save::Home - Place file safely under user home directory
 
 =head1 VERSION
 
-This document refers to version 0.07, released February 19, 2006.
+This document refers to version 0.08, released February 23, 2006.
 
 =head1 SYNOPSIS
 
@@ -64,6 +64,11 @@ This document refers to version 0.07, released February 19, 2006.
 
     $desired_dir_ref = get_subhome_directory_status("desired/directory");
 
+    $desired_dir_ref = get_subhome_directory_status(
+        "desired/directory",
+        "pseudohome/directory",    # two-argument version
+    );
+
     $desired_dir = make_subhome_directory($desired_dir_ref);
 
     restore_subhome_directory_status($desired_dir_ref);
@@ -76,7 +81,11 @@ This document refers to version 0.07, released February 19, 2006.
 
     reveal_target_file($target_ref);
 
-    $tmpdir = make_subhome_temp_directory;
+    $tmpdir = make_subhome_temp_directory();
+
+    $tmpdir = make_subhome_temp_directory(
+        "pseudohome/directory",    # optional argument version
+    );
 
 =head1 DESCRIPTION
 
@@ -134,12 +143,36 @@ sub get_home_directory {
 
 =head2 C<get_subhome_directory_status()>
 
+=head3 Single argument version
+
 Takes as argument a string holding the name of a directory, either
 single-level (C<mydir>) or multi-level (C<path/to/mydir>).  Determines 
 whether that  directory already exists underneath the user's
 home or home-equivalent directory. Calls C<get_home_directory()> internally,
-then tacks on the path passed as argument. Returns a reference to a
-four-element hash whose keys are:
+then tacks on the path passed as argument.
+
+=head3 Two-argument version
+
+Suppose you want to determine the name of a user's home directory by some
+other route than C<get_home_directory()>.  Suppose, for example, that you're
+on Win32 and want to use the C<my_home()> method supplied by CPAN distribution
+File::HomeDir -- a method which returns a different result from that of our
+C<get_home_directory()> -- but you still want to use those File::Save::Home
+functions which normally call C<get_home_directory()> internally.  Or, suppose
+you want to supply an arbitrary path.
+
+You can now do so by supplying an I<optional second argument> to
+C<get_subhome_directory_status>.  This argument should be a valid path name
+for a directory to which you have write privileges.
+C<get_subhome_directory_status> will determine if the directory exists and, if
+so, determine whether the I<first> argument is a subdirectory of the I<second>
+argument.
+
+=head3 Both versions
+
+Whether you use the single argument version or the two-argument version,
+C<get_subhome_directory_status> returns a reference to a four-element hash 
+whose keys are:
 
 =over 4
 
@@ -166,7 +199,14 @@ The uppermost subdirectory passed as the argument to this function.
 
 sub get_subhome_directory_status {
     my $subdir = shift;
-    my $home = get_home_directory();
+    my ($pseudohome, $home);
+    $pseudohome = $_[0] if $_[0];
+    if (defined $pseudohome) {
+        -d $pseudohome or croak "$pseudohome is not a valid directory: $!";
+    }
+    $home = defined $pseudohome
+        ? $pseudohome
+        : get_home_directory();
     my $dirname = "$home/$subdir"; 
     my $subdir_top = (splitdir($subdir))[0];
     
@@ -244,10 +284,24 @@ sub restore_subhome_directory_status {
 
 =head2 C<make_subhome_temp_directory()>
 
+=head3 Regular version:  no arguments
+
 Creates a randomly named temporary directory underneath the home or
-home-equivalent directory returned by C<get_home_directory()>.  This is
-accomplished by use of C<File::Temp::tempdir (DIR => $home, CLEANUP => 1)>.  
-Returns the directory path if succesful; C<croak>s otherwise.
+home-equivalent directory returned by C<get_home_directory()>.  
+
+=head3 Optional argument version
+
+Creates a randomly named temporary directory underneath the directory supplied
+as the single argument.  This version is analogous to the two-argument verion
+of L</"get_subhome_directory_status()"> above.  You could use it if, for
+example, you wanted to use C<File::HomeDir->my_home()> to supply a value for
+the user's home directory instead of our C<get_home_directory()>.
+
+=head3 Both versions
+
+In both versions, the temporary subdirectory is created by calling 
+C<File::Temp::tempdir (DIR => $home, CLEANUP => 1)>.  The function 
+returns the directory path if succesful; C<croak>s otherwise.
 
 B<Note:>  Any temporary directory so created remains in existence for 
 the duration of the program, but is deleted (along with all its contents) 
@@ -256,7 +310,16 @@ when the program exits.
 =cut
 
 sub make_subhome_temp_directory {
-    my $tdir = tempdir(DIR => get_home_directory(), CLEANUP => 1);
+    my ($pseudohome, $home);
+    $pseudohome = $_[0] if $_[0];
+    if (defined $pseudohome) {
+        -d $pseudohome or croak "$pseudohome is not a valid directory: $!";
+    }
+    $home = defined $pseudohome
+        ? $pseudohome
+        : get_home_directory();
+#    my $tdir = tempdir(DIR => get_home_directory(), CLEANUP => 1);
+    my $tdir = tempdir(DIR => $home, CLEANUP => 1);
     return $tdir ? $tdir : croak "Unable to create temp dir under home: $!";
 }
 
@@ -466,20 +529,59 @@ Perlmonks.  (See threads I<Installing a config file during module operation>
 (L<http://perlmonks.org/?node_id=481690>) and I<Win32 CSIDL_LOCAL_APPDATA>
 (L<http://perlmonks.org/?node_id=485902>).)  I adopted this approach in part
 because the people recommending it knew more about Windows than I did, and in
-part because File::HomeDir was not quite as mature as it has since become.  It
-is interesting that the I<other two> File::HomeDir methods listed above,
+part because File::HomeDir was not quite as mature as it has since become.  
+
+But don't trust me; trust Microsoft!  Here's their explanation for the use of
+CSIDL values in general and CSIDL_LOCAL_APPDATA() in particular:
+
+=over 4
+
+=item *
+
+I<CSIDL values provide a unique system-independent way
+to identify special folders used frequently by
+applications, but which may not have the same name or
+location on any given system. For example, the system
+folder may be ''C:\Windows'' on one system and
+''C:\Winnt'' on another. These constants are defined in
+Shlobj.h and Shfolder.h.>
+
+=item *
+
+I<CSIDL_LOCAL_APPDATA (0x001c)
+Version 5.0. The file system directory that serves as
+a data repository for local (nonroaming) applications.
+A typical path is C:\Documents and
+Settings\username\Local Settings\Application Data.>
+
+=back
+
+(Source:
+L<http://msdn.microsoft.com/library/default.asp?url=/library/en-us/shellcc/platform/shell/reference/enums/csidl.asp>.
+Link valid as of Feb 18 2006.  Thanks to Soren Andersen for reminding me of
+this citation.)
+
+It is interesting that the I<other two> File::HomeDir methods listed above,
 C<my_documents()> and C<my_data()> both rely on using a Win32 module to peer
 into the registry, albeit in a slightly different manner from
 C<File::Save::Home-E<gt>get_home_directory>.  TIMTOWTDI.
 
 In an event, File::Save::Home has a number of useful methods I<besides>
-C<get_home_directory()> which merit your consideration.
+C<get_home_directory()> which merit your consideration.  And, as noted above,
+you can supply any valid directory as an optional additional argument to the
+two File::Save::Home functions which normally default to calling
+C<get_home_directory> internally.
 
 =head2 File::HomeDir::Win32
 
 File::HomeDir::Win32 was originally written by Rob Rothenberg and is now
-maintained by Randy Kobes.  Because I have not yet fully installed it, I will 
-defer further comparison between it and File::Save::Home to a later date.
+maintained by Randy Kobes.  According to Adam Kennedy 
+(L<http://annocpan.org/~JKEENAN/File-Save-Home-0.07/lib/File/Save/Home.pm#note_636>),
+''The functionality in File::HomeDir::Win32 is gradually being merged into
+File::HomeDir over time and will eventually be deprecated (although left in
+place for compatibility purposes).''  Because I have not yet fully installed
+File::HomeDir::Win32, I will defer further comparison between it and 
+File::Save::Home to a later date.
 
 =head1 AUTHOR
 
@@ -515,6 +617,29 @@ it and/or modify it under the same terms as Perl itself.
 
 The full text of the license can be found in the
 LICENSE file included with this module.
+
+=head1 DISCLAIMER OF WARRANTY
+
+BECAUSE THIS SOFTWARE IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY
+FOR THE SOFTWARE, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN
+OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES
+PROVIDE THE SOFTWARE ''AS IS'' WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. THE
+ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE SOFTWARE IS WITH
+YOU. SHOULD THE SOFTWARE PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL
+NECESSARY SERVICING, REPAIR, OR CORRECTION.
+
+IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR
+REDISTRIBUTE THE SOFTWARE AS PERMITTED BY THE ABOVE LICENCE, BE
+LIABLE TO YOU FOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL,
+OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE
+THE SOFTWARE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING
+RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A
+FAILURE OF THE SOFTWARE TO OPERATE WITH ANY OTHER SOFTWARE), EVEN IF
+SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
 
 =cut
 
