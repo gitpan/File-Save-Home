@@ -12,3 +12,4 @@ t/03_placefile.t
 t/04_tempdir.t
 t/05_pseudohome.t
 t/06_Win32.t
+META.json                                Module JSON meta-data (added by MakeMaker)
